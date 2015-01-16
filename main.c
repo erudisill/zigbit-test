@@ -22,15 +22,16 @@
 #include "halLed.h"
 
 SYS_Timer_t statusTimer;
+char msg[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789CPHT";
 
 
 #define TEST_SENDER
 //#define TEST_RECEIVER
 
+#define SEND_INTERVAL 10
 
 #ifdef TEST_SENDER
 
-char msg[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789CPHT";
 NWK_DataReq_t nwkDataReq;
 
 void appDataConf(NWK_DataReq_t *req)
@@ -72,7 +73,7 @@ bool appDataInd(NWK_DataInd_t *ind)
 
 void APP_setup(void)
 {
-	statusTimer.interval = 50;
+	statusTimer.interval = SEND_INTERVAL;
 	statusTimer.mode = SYS_TIMER_INTERVAL_MODE;
 	statusTimer.handler = statusTimerHandler;
 	SYS_TimerStart(&statusTimer);
@@ -91,14 +92,23 @@ uint32_t received_bytes;
 uint32_t ticks_count;
 uint32_t received_count_prev;
 uint16_t received_delta;
+uint32_t error_count;
+uint32_t error_count_prev;
+uint16_t error_delta;
+uint8_t checksum;
 char buffer[50];
 
 void statusTimerHandler(SYS_Timer_t *timer)
 {
 	ticks_count += 1;
+
 	received_delta = received_count - received_count_prev;
 	received_count_prev = received_count;
-	sprintf(buffer, "%lu\tR:%lu (+%d)\tB:%lu\r\n", ticks_count, received_count, received_delta, received_bytes);
+
+	error_delta = error_count - error_count_prev;
+	error_count_prev = error_count;
+
+	sprintf(buffer, "%lu\tR:%lu (+%d)\tE:%lu (+%d)\tB:%lu\r\n", ticks_count, received_count, received_delta, error_count, error_delta, received_bytes);
 	for (int i=0; buffer[i]; HAL_UartWriteByte(buffer[i++]));
 	(void)timer;
 }
@@ -108,12 +118,29 @@ bool appDataInd(NWK_DataInd_t *ind)
 	HAL_LedOn(LED_DATA);
 	received_count += 1;
 	received_bytes += ind->size;
+
+	// Validate data
+	if (ind->size != sizeof(msg))
+	{
+		error_count += 1;
+	}
+	else
+	{
+		uint8_t cs = 0;
+		for (int i=0; i<ind->size; cs ^= ind->data[i++]);
+		if (cs != checksum)
+			error_count += 1;
+	}
+
 	HAL_LedOff(LED_DATA);
 	return true;
 }
 
 void APP_setup(void)
 {
+	checksum = 0;
+	for (int i=0; i<sizeof(msg); checksum ^= msg[i++]);
+
 	statusTimer.interval = 1000;
 	statusTimer.mode = SYS_TIMER_PERIODIC_MODE;
 	statusTimer.handler = statusTimerHandler;
