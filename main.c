@@ -24,8 +24,8 @@
 SYS_Timer_t statusTimer;
 
 
-//#define TEST_SENDER
-#define TEST_RECEIVER
+#define TEST_SENDER
+//#define TEST_RECEIVER
 
 
 #ifdef TEST_SENDER
@@ -127,10 +127,15 @@ void APP_setup(void)
 void APP_setupNetwork(void)
 {
 #ifdef TEST_SENDER
-	NWK_SetAddr(0x0035);
+	uint8_t b;
+	uint16_t short_addr;
+	b = boot_signature_byte_get(0x0102);	short_addr	 = b;
+	b = boot_signature_byte_get(0x0103);	short_addr	|= ((uint16_t)b << 8);
+	NWK_SetAddr(short_addr);
 #else
 	NWK_SetAddr(0x0000);
 #endif
+
 	NWK_SetPanId(0x1973);
 	PHY_SetChannel(0x16);
 	PHY_SetTxPower(0);
