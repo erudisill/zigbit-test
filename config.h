@@ -13,7 +13,7 @@
 /*- Definitions ------------------------------------------------------------*/
 #define HAL_UART_CHANNEL        1
 #define HAL_UART_RX_FIFO_SIZE   1
-#define HAL_UART_TX_FIFO_SIZE   100
+#define HAL_UART_TX_FIFO_SIZE   1024
 
 #define LED_NETWORK       1
 #define LED_DATA          0

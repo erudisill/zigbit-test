@@ -21,6 +21,8 @@
 #include "halUart.h"
 #include "halLed.h"
 
+#include "messages.h"
+
 SYS_Timer_t statusTimer;
 char msg[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789CPHT";
 
@@ -95,11 +97,19 @@ uint16_t received_delta;
 uint32_t error_count;
 uint32_t error_count_prev;
 uint16_t error_delta;
+uint32_t error_queue_count;
+uint32_t error_queue_count_prev;
+uint16_t error_queue_delta;
+uint16_t dequeue_count;
 uint8_t checksum;
-char buffer[50];
+char buffer[128];
+message_t message;
+bool status_signal;
 
-void statusTimerHandler(SYS_Timer_t *timer)
+void printStatus(void)
 {
+	int queue_count;
+
 	ticks_count += 1;
 
 	received_delta = received_count - received_count_prev;
@@ -108,14 +118,33 @@ void statusTimerHandler(SYS_Timer_t *timer)
 	error_delta = error_count - error_count_prev;
 	error_count_prev = error_count;
 
-	sprintf(buffer, "%lu\tR:%lu (+%d)\tE:%lu (+%d)\tB:%lu\r\n", ticks_count, received_count, received_delta, error_count, error_delta, received_bytes);
+	error_queue_delta = error_queue_count - error_queue_count_prev;
+	error_queue_count_prev = error_queue_count;
+
+	queue_count = messages_count();
+
+	sprintf(buffer, "\r\n%lu\tR:%lu (+%d)\tE:%lu (+%d)\tQ:%d\tQe:%lu (+%d)\tD:%d\tB:%lu",
+			ticks_count, received_count, received_delta, error_count, error_delta, queue_count, error_queue_count, error_queue_delta, dequeue_count, received_bytes);
 	for (int i=0; buffer[i]; HAL_UartWriteByte(buffer[i++]));
+
+	dequeue_count = 0;
+}
+
+void statusTimerHandler(SYS_Timer_t *timer)
+{
+
+	//status_signal = true;
+	printStatus();
+
 	(void)timer;
 }
 
 bool appDataInd(NWK_DataInd_t *ind)
 {
+	bool result;
+
 	HAL_LedOn(LED_DATA);
+
 	received_count += 1;
 	received_bytes += ind->size;
 
@@ -129,7 +158,21 @@ bool appDataInd(NWK_DataInd_t *ind)
 		uint8_t cs = 0;
 		for (int i=0; i<ind->size; cs ^= ind->data[i++]);
 		if (cs != checksum)
+		{
 			error_count += 1;
+		}
+		/*
+		else
+		{
+			memset(message.data, 0, sizeof(message.data));
+			memcpy(message.data, ind->data, ind->size);
+			result = messages_enqueue(&message);
+			if (result == false)
+			{
+				error_queue_count += 1;
+			}
+		}
+		*/
 	}
 
 	HAL_LedOff(LED_DATA);
@@ -174,9 +217,40 @@ void HAL_UartBytesReceived(uint16_t bytes)
 
 }
 
+
 void APP_TaskHandler(void)
 {
+	/*
+	bool result;
+	message_t dump;
+	int c;
 
+	if (status_signal == true)
+	{
+		printStatus();
+		status_signal = false;
+	}
+
+	c = messages_count();
+
+	if (c > 1)
+		c = 1;
+
+	for (int i=0; i<c; i++)
+	{
+		memset(&dump, 0, sizeof(message_t));
+		result = messages_dequeue(&dump);
+		if (result == false)
+			break;
+		dequeue_count += 1;
+
+		// Print the data
+		usart_transmit('\r');
+		usart_transmit('\n');
+		//for (int i=0; dump.data[i]; usart_transmit(dump.data[i++]));
+		for (int i=0; msg[i]; usart_transmit(msg[i++]));
+	}
+	*/
 }
 
 int main(void)

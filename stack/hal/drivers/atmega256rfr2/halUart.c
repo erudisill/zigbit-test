@@ -233,3 +233,4 @@ void HAL_UartTaskHandler(void)
       HAL_UartBytesReceived(bytes);
   }
 }
+
