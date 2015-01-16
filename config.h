@@ -37,11 +37,4 @@
 #define PHY_ENABLE_RANDOM_NUMBER_GENERATOR
 
 
-enum
-{
-	NodeType_Coordinator = 0,
-	NodeType_Router,
-	NodeType_EndDevice
-};
-
 #endif // _CONFIG_H_

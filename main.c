@@ -21,14 +21,71 @@
 #include "halUart.h"
 #include "halLed.h"
 
+SYS_Timer_t statusTimer;
+
 
 //#define TEST_SENDER
 #define TEST_RECEIVER
 
 
+#ifdef TEST_SENDER
+
+char msg[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789CPHT";
+NWK_DataReq_t nwkDataReq;
+
+void appDataConf(NWK_DataReq_t *req)
+{
+	HAL_LedOff(LED_DATA);
+	SYS_TimerStart(&statusTimer);
+}
+
+void send(void)
+{
+	if (NWK_Busy()) {
+		SYS_TimerStart(&statusTimer);
+		return;
+	}
+
+	HAL_LedOn(LED_DATA);
+
+	nwkDataReq.dstAddr = 0;
+	nwkDataReq.dstEndpoint = 1;
+	nwkDataReq.srcEndpoint = 1;
+	nwkDataReq.options = 0;
+	nwkDataReq.data = (uint8_t *)msg;
+	nwkDataReq.size = sizeof(msg);
+	nwkDataReq.confirm = appDataConf;
+
+	NWK_DataReq(&nwkDataReq);
+}
+
+void statusTimerHandler(SYS_Timer_t *timer)
+{
+	send();
+	(void)timer;
+}
+
+bool appDataInd(NWK_DataInd_t *ind)
+{
+	return true;
+}
+
+void APP_setup(void)
+{
+	statusTimer.interval = 50;
+	statusTimer.mode = SYS_TIMER_INTERVAL_MODE;
+	statusTimer.handler = statusTimerHandler;
+	SYS_TimerStart(&statusTimer);
+
+	NWK_OpenEndpoint(1, appDataInd);
+}
+
+#endif
+
+
+
 #ifdef TEST_RECEIVER
 
-SYS_Timer_t statusTimer;
 uint32_t received_count;
 uint32_t received_bytes;
 uint32_t ticks_count;
@@ -69,9 +126,14 @@ void APP_setup(void)
 
 void APP_setupNetwork(void)
 {
+#ifdef TEST_SENDER
+	NWK_SetAddr(0x0035);
+#else
 	NWK_SetAddr(0x0000);
+#endif
 	NWK_SetPanId(0x1973);
 	PHY_SetChannel(0x16);
+	PHY_SetTxPower(0);
 	PHY_SetRxState(true);
 }
 
