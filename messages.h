@@ -10,7 +10,7 @@
 
 #include <stdbool.h>
 
-#define MESSAGE_QUEUE_SIZE 100
+#define MESSAGE_QUEUE_SIZE 200
 
 typedef struct
 {

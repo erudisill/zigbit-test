@@ -30,9 +30,11 @@ char msg[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789CPHT";
 
 #define TEST_RECEIVER
 #define RECEIVER_USE_QUEUE
-#define RECEIVER_DEQUEUE_PER_TICK 10
-#define RECEIVER_MAX_IN_QUEUE_BEFORE_DUMP 10
+#define RECEIVER_DEQUEUE_PER_TICK 80
+#define RECEIVER_MAX_IN_QUEUE_BEFORE_DUMP 80
 #define RECEIVER_DUMP_TO_USART
+//#define RECEIVER_TICKS_RECEIVING
+#define RECEIVER_TICKS_DUMPING
 
 #define SEND_INTERVAL 10
 
@@ -97,7 +99,10 @@ void APP_TaskHandler(void)
 
 uint32_t received_count;
 uint32_t received_bytes;
+uint32_t secs_count;
 uint32_t ticks_count;
+uint32_t ticks_count_prev;
+uint16_t ticks_count_delta;
 uint32_t received_count_prev;
 uint16_t received_delta;
 uint32_t error_count;
@@ -118,8 +123,7 @@ uint8_t current_state;
 
 void printStatus(void) {
 	int queue_count;
-
-	ticks_count += 1;
+	int recs_per_sec;
 
 	received_delta = received_count - received_count_prev;
 	received_count_prev = received_count;
@@ -130,13 +134,17 @@ void printStatus(void) {
 	error_queue_delta = error_queue_count - error_queue_count_prev;
 	error_queue_count_prev = error_queue_count;
 
+	ticks_count_delta = ticks_count - ticks_count_prev;
+	ticks_count_prev = ticks_count;
+
 	queue_count = messages_count();
+	recs_per_sec = received_count / secs_count;
 
 	sprintf(buffer,
-			"\r\n%lu\tR:%lu (+%d)\tE:%lu (+%d)\tQ:%d\tQe:%lu (+%d)\tD:%d\tB:%lu\tS:%d\t",
-			ticks_count, received_count, received_delta, error_count,
+			"\r\n%lu\tR:%lu (+%d)\tRps:%d\tE:%lu (+%d)\tQ:%d\tQe:%lu (+%d)\tD:%d\tB:%lu\tT:%d\t",
+			secs_count, received_count, received_delta, recs_per_sec, error_count,
 			error_delta, queue_count, error_queue_count, error_queue_delta,
-			dequeue_count, received_bytes, current_state);
+			dequeue_count, received_bytes, ticks_count_delta);
 	for (int i = 0; buffer[i]; HAL_UartWriteByte(buffer[i++]))
 		;
 
@@ -146,6 +154,7 @@ void printStatus(void) {
 void statusTimerHandler(SYS_Timer_t *timer) {
 
 	//printStatus();
+	secs_count += 1;
 	signal_status = true;
 	(void) timer;
 }
@@ -190,7 +199,7 @@ void APP_setup(void) {
 		;
 
 	statusTimer.interval = 1000;
-	statusTimer.mode = SYS_TIMER_INTERVAL_MODE;
+	statusTimer.mode = SYS_TIMER_PERIODIC_MODE;
 	statusTimer.handler = statusTimerHandler;
 	SYS_TimerStart(&statusTimer);
 
@@ -206,6 +215,9 @@ void APP_TaskHandler(void) {
 
 	switch (current_state) {
 	case STATE_RECEIVING:
+#ifdef RECEIVER_TICKS_RECEIVING
+		ticks_count += 1;
+#endif
 		c = messages_count();
 		if (c >= RECEIVER_MAX_IN_QUEUE_BEFORE_DUMP) {
 			PHY_SetRxState(false);
@@ -214,6 +226,9 @@ void APP_TaskHandler(void) {
 		break;
 	case STATE_DUMPING:
 		if (!NWK_Busy()) {
+#ifdef RECEIVER_TICKS_DUMPING
+			ticks_count += 1;
+#endif
 			if (c > RECEIVER_DEQUEUE_PER_TICK)
 				c = RECEIVER_DEQUEUE_PER_TICK;
 
@@ -234,7 +249,6 @@ void APP_TaskHandler(void) {
 			if (signal_status == true) {
 				printStatus();
 				signal_status = false;
-				SYS_TimerStart(&statusTimer);
 			}
 			c = messages_count();
 			if (c == 0) {
