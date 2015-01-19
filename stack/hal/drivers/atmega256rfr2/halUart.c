@@ -234,3 +234,8 @@ void HAL_UartTaskHandler(void)
   }
 }
 
+//CPHT: Added HAL_UartGetTxFifoBytes to facilitate flushing
+uint16_t HAL_UartGetTxFifoBytes(void)
+{
+	return txFifo.bytes;
+}
