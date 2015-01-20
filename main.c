@@ -30,9 +30,9 @@ char msg[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789CPHT";
 
 #define TEST_RECEIVER
 #define RECEIVER_USE_QUEUE
-#define RECEIVER_DEQUEUE_PER_TICK 80
-#define RECEIVER_MAX_IN_QUEUE_BEFORE_DUMP 80
-#define RECEIVER_DUMP_TO_USART
+#define RECEIVER_DEQUEUE_PER_TICK 1
+#define RECEIVER_MAX_IN_QUEUE_BEFORE_DUMP 1
+//#define RECEIVER_DUMP_TO_USART
 //#define RECEIVER_TICKS_RECEIVING
 #define RECEIVER_TICKS_DUMPING
 
@@ -142,9 +142,10 @@ void printStatus(void) {
 
 	sprintf(buffer,
 			"\r\n%lu\tR:%lu (+%d)\tRps:%d\tE:%lu (+%d)\tQ:%d\tQe:%lu (+%d)\tD:%d\tB:%lu\tT:%d\t",
-			secs_count, received_count, received_delta, recs_per_sec, error_count,
-			error_delta, queue_count, error_queue_count, error_queue_delta,
-			dequeue_count, received_bytes, ticks_count_delta);
+			secs_count, received_count, received_delta, recs_per_sec,
+			error_count, error_delta, queue_count, error_queue_count,
+			error_queue_delta, dequeue_count, received_bytes,
+			ticks_count_delta);
 	for (int i = 0; buffer[i]; HAL_UartWriteByte(buffer[i++]))
 		;
 
@@ -159,6 +160,30 @@ void statusTimerHandler(SYS_Timer_t *timer) {
 	(void) timer;
 }
 
+#ifdef MESSAGES_TEST
+bool isValidMessage(NWK_DataInd_t *ind) {
+	if (ind->size != sizeof(msg)) {
+		return false;
+	} else {
+		uint8_t cs = 0;
+		for (int i = 0; i < ind->size; cs ^= ind->data[i++])
+			;
+		if (cs != checksum) {
+			return false;
+		}
+	}
+	return true;
+}
+#endif
+#ifdef MESSAGES_APPMSG
+bool isValidMessage(NWK_DataInd_t *ind) {
+	if (ind->size != sizeof(message_t)) {
+		return false;
+	}
+	return true;
+}
+#endif
+
 bool appDataInd(NWK_DataInd_t *ind) {
 	bool result;
 
@@ -167,26 +192,17 @@ bool appDataInd(NWK_DataInd_t *ind) {
 	received_count += 1;
 	received_bytes += ind->size;
 
-	// Validate data
-	if (ind->size != sizeof(msg)) {
-		error_count += 1;
-	} else {
-		uint8_t cs = 0;
-		for (int i = 0; i < ind->size; cs ^= ind->data[i++])
-			;
-		if (cs != checksum) {
-			error_count += 1;
-		}
+	if (isValidMessage(ind) == true) {
 #ifdef RECEIVER_USE_QUEUE
-		else {
-			memset(message.data, 0, sizeof(message.data));
-			memcpy(message.data, ind->data, ind->size);
-			result = messages_enqueue(&message);
-			if (result == false) {
-				error_queue_count += 1;
-			}
+		memset(&message, 0, sizeof(message_t));
+		memcpy(&message, ind->data, ind->size);
+		result = messages_enqueue(&message);
+		if (result == false) {
+			error_queue_count += 1;
 		}
 #endif
+	} else {
+		error_count += 1;
 	}
 
 	HAL_LedOff(LED_DATA);
@@ -212,6 +228,12 @@ void APP_TaskHandler(void) {
 	bool result;
 	message_t dump;
 	int c;
+
+	c = messages_count();
+	if (c == 0 && signal_status == true) {
+		printStatus();
+		signal_status = false;
+	}
 
 	switch (current_state) {
 	case STATE_RECEIVING:
@@ -243,7 +265,8 @@ void APP_TaskHandler(void) {
 				// Print the data
 				HAL_UartWriteByte('\r');
 				HAL_UartWriteByte('\n');
-				for (int i=0; dump.data[i]; HAL_UartWriteByte(dump.data[i++]));
+				for (int i = 0; ((uint8_t *)&dump)[i]; HAL_UartWriteByte(((uint8_t *)&dump)[i++]))
+					;
 #endif
 			}
 			if (signal_status == true) {
