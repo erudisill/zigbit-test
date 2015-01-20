@@ -179,6 +179,13 @@ bool isValidMessage(NWK_DataInd_t *ind) {
 bool isValidMessage(NWK_DataInd_t *ind) {
 	if (ind->size != sizeof(message_t)) {
 		return false;
+	} else {
+		uint8_t cs = 0;
+		for (int i = 0; i < sizeof(message_t)-1; cs ^= ind->data[i++])
+			;
+		if (cs != ((message_t*)ind->data)->cs) {
+			return false;
+		}
 	}
 	return true;
 }
