@@ -32,9 +32,11 @@ char msg[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789CPHT";
 #define RECEIVER_USE_QUEUE
 #define RECEIVER_DEQUEUE_PER_TICK 1
 #define RECEIVER_MAX_IN_QUEUE_BEFORE_DUMP 1
-//#define RECEIVER_DUMP_TO_USART
+#define RECEIVER_DUMP_TO_USART
 //#define RECEIVER_TICKS_RECEIVING
 #define RECEIVER_TICKS_DUMPING
+//#define RECEIVER_STATUS_AS_STRING
+#define RECEIVER_STATUS_AS_COBS
 
 #define SEND_INTERVAL 10
 
@@ -97,65 +99,111 @@ void APP_TaskHandler(void)
 
 #ifdef TEST_RECEIVER
 
-uint32_t received_count;
-uint32_t received_bytes;
-uint32_t secs_count;
-uint32_t ticks_count;
-uint32_t ticks_count_prev;
-uint16_t ticks_count_delta;
-uint32_t received_count_prev;
-uint16_t received_delta;
-uint32_t error_count;
-uint32_t error_count_prev;
-uint16_t error_delta;
-uint32_t error_queue_count;
-uint32_t error_queue_count_prev;
-uint16_t error_queue_delta;
-uint16_t dequeue_count;
+typedef struct {
+	uint16_t header;
+	uint32_t received_count;
+	uint32_t received_bytes;
+	uint32_t secs_count;
+	uint32_t ticks_count;
+	uint32_t ticks_count_prev;
+	uint16_t ticks_count_delta;
+	uint32_t received_count_prev;
+	uint16_t received_delta;
+	uint32_t error_count;
+	uint32_t error_count_prev;
+	uint16_t error_delta;
+	uint32_t error_queue_count;
+	uint32_t error_queue_count_prev;
+	uint16_t error_queue_delta;
+	uint16_t dequeue_count;
+	uint16_t queue_count;
+	uint16_t recs_per_sec;
+} status_t;
+
+status_t status;
+
 uint8_t checksum;
 bool signal_status;
 char buffer[128];
+uint8_t cobs_buffer[128];
 message_t message;
 enum {
 	STATE_RECEIVING, STATE_DUMPING
 };
 uint8_t current_state;
 
+size_t cobsEncode(uint8_t *input, uint8_t length, uint8_t *output) {
+	size_t read_index = 0;
+	size_t write_index = 1;
+	size_t code_index = 0;
+	uint8_t code = 1;
+
+	while (read_index < length) {
+		if (input[read_index] == 0) {
+			output[code_index] = code;
+			code = 1;
+			code_index = write_index++;
+			read_index++;
+		} else {
+			output[write_index++] = input[read_index++];
+			code++;
+			if (code == 0xFF) {
+				output[code_index] = code;
+				code = 1;
+				code_index = write_index++;
+			}
+		}
+	}
+
+	output[code_index] = code;
+
+	return write_index;
+}
+
 void printStatus(void) {
-	int queue_count;
-	int recs_per_sec;
 
-	received_delta = received_count - received_count_prev;
-	received_count_prev = received_count;
+	status.header = 0xABAB;
 
-	error_delta = error_count - error_count_prev;
-	error_count_prev = error_count;
+	status.received_delta = status.received_count - status.received_count_prev;
+	status.received_count_prev = status.received_count;
 
-	error_queue_delta = error_queue_count - error_queue_count_prev;
-	error_queue_count_prev = error_queue_count;
+	status.error_delta = status.error_count - status.error_count_prev;
+	status.error_count_prev = status.error_count;
 
-	ticks_count_delta = ticks_count - ticks_count_prev;
-	ticks_count_prev = ticks_count;
+	status.error_queue_delta = status.error_queue_count - status.error_queue_count_prev;
+	status.error_queue_count_prev = status.error_queue_count;
 
-	queue_count = messages_count();
-	recs_per_sec = received_count / secs_count;
+	status.ticks_count_delta = status.ticks_count - status.ticks_count_prev;
+	status.ticks_count_prev = status.ticks_count;
 
+	status.queue_count = messages_count();
+	status.recs_per_sec = status.received_count / status.secs_count;
+
+#ifdef RECEIVER_STATUS_AS_STRING
 	sprintf(buffer,
 			"\r\n%lu\tR:%lu (+%d)\tRps:%d\tE:%lu (+%d)\tQ:%d\tQe:%lu (+%d)\tD:%d\tB:%lu\tT:%d\t",
-			secs_count, received_count, received_delta, recs_per_sec,
-			error_count, error_delta, queue_count, error_queue_count,
-			error_queue_delta, dequeue_count, received_bytes,
-			ticks_count_delta);
+			status.secs_count, status.received_count, status.received_delta, status.recs_per_sec,
+			status.error_count, status.error_delta, status.queue_count, status.error_queue_count,
+			status.error_queue_delta, status.dequeue_count, status.received_bytes,
+			status.ticks_count_delta);
 	for (int i = 0; buffer[i]; HAL_UartWriteByte(buffer[i++]))
 		;
+#endif
 
-	dequeue_count = 0;
+#ifdef RECEIVER_STATUS_AS_COBS
+	uint8_t length = cobsEncode((uint8_t*)&status, sizeof(status_t), cobs_buffer);
+	for (int i = 0; i < length; HAL_UartWriteByte(cobs_buffer[i++]))
+		;
+	HAL_UartWriteByte(0);
+#endif
+
+	status.dequeue_count = 0;
 }
 
 void statusTimerHandler(SYS_Timer_t *timer) {
 
 	//printStatus();
-	secs_count += 1;
+	status.secs_count += 1;
 	signal_status = true;
 	(void) timer;
 }
@@ -167,7 +215,7 @@ bool isValidMessage(NWK_DataInd_t *ind) {
 	} else {
 		uint8_t cs = 0;
 		for (int i = 0; i < ind->size; cs ^= ind->data[i++])
-			;
+		;
 		if (cs != checksum) {
 			return false;
 		}
@@ -181,14 +229,7 @@ bool isValidMessage(NWK_DataInd_t *ind) {
 	if (ind->size != sizeof(message_t)) {
 		return false;
 	}
-//	else {
-//		uint8_t cs = 0;
-//		for (int i = 0; i < sizeof(message_t)-1; cs ^= ind->data[i++])
-//			;
-//		if (cs != ((message_t*)ind->data)->cs) {
-//			return false;
-//		}
-//	}
+	//TODO: Check for signature bytes
 	return true;
 }
 #endif
@@ -198,8 +239,8 @@ bool appDataInd(NWK_DataInd_t *ind) {
 
 	HAL_LedOn(LED_DATA);
 
-	received_count += 1;
-	received_bytes += ind->size;
+	status.received_count += 1;
+	status.received_bytes += ind->size;
 
 	if (isValidMessage(ind) == true) {
 #ifdef RECEIVER_USE_QUEUE
@@ -207,11 +248,11 @@ bool appDataInd(NWK_DataInd_t *ind) {
 		memcpy(&message, ind->data, ind->size);
 		result = messages_enqueue(&message);
 		if (result == false) {
-			error_queue_count += 1;
+			status.error_queue_count += 1;
 		}
 #endif
 	} else {
-		error_count += 1;
+		status.error_count += 1;
 	}
 
 	HAL_LedOff(LED_DATA);
@@ -258,7 +299,7 @@ void APP_TaskHandler(void) {
 	case STATE_DUMPING:
 		if (!NWK_Busy()) {
 #ifdef RECEIVER_TICKS_DUMPING
-			ticks_count += 1;
+			status.ticks_count += 1;
 #endif
 			if (c > RECEIVER_DEQUEUE_PER_TICK)
 				c = RECEIVER_DEQUEUE_PER_TICK;
@@ -268,16 +309,13 @@ void APP_TaskHandler(void) {
 				result = messages_dequeue(&dump);
 				if (result == false)
 					break;
-				dequeue_count += 1;
+				status.dequeue_count += 1;
 
 #ifdef RECEIVER_DUMP_TO_USART
-				// Print the data
-				HAL_UartWriteByte('\r');
-				HAL_UartWriteByte('\n');
-//				for (int i = 0; ((uint8_t *)&dump)[i]; HAL_UartWriteByte(((uint8_t *)&dump)[i++]))
-//					;
-				for (int i = 0; i < sizeof(message_t); HAL_UartWriteByte(((uint8_t *)&dump)[i++]))
+				uint8_t length = cobsEncode((uint8_t*)&dump, sizeof(message_t), cobs_buffer);
+				for (int i = 0; i < length; HAL_UartWriteByte(cobs_buffer[i++]))
 					;
+				HAL_UartWriteByte(0);
 #endif
 			}
 			if (signal_status == true) {
