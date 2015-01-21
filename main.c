@@ -177,16 +177,18 @@ bool isValidMessage(NWK_DataInd_t *ind) {
 #endif
 #ifdef MESSAGES_APPMSG
 bool isValidMessage(NWK_DataInd_t *ind) {
+
 	if (ind->size != sizeof(message_t)) {
 		return false;
-	} else {
-		uint8_t cs = 0;
-		for (int i = 0; i < sizeof(message_t)-1; cs ^= ind->data[i++])
-			;
-		if (cs != ((message_t*)ind->data)->cs) {
-			return false;
-		}
 	}
+//	else {
+//		uint8_t cs = 0;
+//		for (int i = 0; i < sizeof(message_t)-1; cs ^= ind->data[i++])
+//			;
+//		if (cs != ((message_t*)ind->data)->cs) {
+//			return false;
+//		}
+//	}
 	return true;
 }
 #endif
@@ -272,7 +274,9 @@ void APP_TaskHandler(void) {
 				// Print the data
 				HAL_UartWriteByte('\r');
 				HAL_UartWriteByte('\n');
-				for (int i = 0; ((uint8_t *)&dump)[i]; HAL_UartWriteByte(((uint8_t *)&dump)[i++]))
+//				for (int i = 0; ((uint8_t *)&dump)[i]; HAL_UartWriteByte(((uint8_t *)&dump)[i++]))
+//					;
+				for (int i = 0; i < sizeof(message_t); HAL_UartWriteByte(((uint8_t *)&dump)[i++]))
 					;
 #endif
 			}
